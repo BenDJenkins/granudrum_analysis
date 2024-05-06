@@ -20,9 +20,8 @@ setuptools.setup(
     ],
 	install_requires=[
         'numpy',
-        'fnmatch',
         'random',
-        'cv2',
+        'opencv-python',
         'imutils',
         'warnings',
         'plotly',
