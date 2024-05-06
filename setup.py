@@ -20,7 +20,7 @@ setuptools.setup(
     ],
 	install_requires=[
         'numpy',
-        'fnmatch'
+        'fnmatch',
         'random',
         'cv2',
         'imutils',
