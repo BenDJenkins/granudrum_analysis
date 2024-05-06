@@ -20,7 +20,6 @@ setuptools.setup(
     ],
 	install_requires=[
         'numpy',
-        'os',
         'fnmatch'
         'random',
         'cv2',
@@ -30,7 +29,6 @@ setuptools.setup(
         'seaborn',
         'PIL',
         'collections',
-        'math',
         'pandas'
     ]
 )
