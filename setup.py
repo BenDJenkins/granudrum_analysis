@@ -22,7 +22,6 @@ setuptools.setup(
         'numpy',
         'opencv-python',
         'imutils',
-        'warnings',
         'plotly',
         'seaborn',
         'PIL',
