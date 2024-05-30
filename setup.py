@@ -24,8 +24,7 @@ setuptools.setup(
         'imutils',
         'plotly',
         'seaborn',
-        'PIL',
-        'collections',
+        'pillow',
         'pandas'
     ]
 )
