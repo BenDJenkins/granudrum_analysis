@@ -20,7 +20,6 @@ setuptools.setup(
     ],
 	install_requires=[
         'numpy',
-        'random',
         'opencv-python',
         'imutils',
         'warnings',
