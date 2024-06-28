@@ -10,7 +10,7 @@ import seaborn as sns
 from PIL import Image
 from collections import namedtuple
 import math
-import pandas as pd
+# import pandas as pd
 
 
 def find_nearest(array, value):

@@ -25,6 +25,5 @@ setuptools.setup(
         'plotly',
         'seaborn',
         'pillow',
-        'pandas'
     ]
 )
