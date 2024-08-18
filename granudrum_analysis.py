@@ -11,6 +11,7 @@ from PIL import Image
 from collections import namedtuple
 import math
 # import pandas as pd
+from collections import defaultdict
 
 
 def find_nearest(array, value):
@@ -96,6 +97,26 @@ def extract_free_surface_ff(binary_image):
     edge_coordinates = np.concatenate((np.vstack(xdata), np.vstack(ydata)), axis=1)
 
     return edge_coordinates
+
+
+def extract_free_surface_contour(binary_image):
+    # Find contours
+    # Find contours
+    contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+
+    # Find the contour with the largest area
+    largest_contour = max(contours, key=cv2.contourArea)
+
+    # Extract x, y coordinates from the largest contour and convert to a NumPy array
+    contour_coordinates = np.asfarray([point[0] for point in largest_contour])
+
+    # contour_image = cv2.cvtColor(binary_image, cv2.COLOR_GRAY2BGR)
+    # cv2.drawContours(contour_image, largest_contour          , -1, (0, 255, 0), 1)
+    # cv2.imshow('Contours', contour_image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
+    return contour_coordinates
 
 
 def crop_image(image, percentage=0):
@@ -411,7 +432,7 @@ class AnalyseGranuDrum:
 
         return self.new_image_list
 
-    def extract_interface(self, rotation=0, binary_threshold=10, edge_detection_threshold=10, canny_bool=False):
+    def extract_interface(self, rotation=0, binary_threshold=10, edge_detection_threshold=10, canny_bool=False, contour_bool=False):
         """
         Takes a set of images from the GranuDrum digital twin and extracts x,y points of the free surface/air-powder interface.
 
@@ -419,6 +440,7 @@ class AnalyseGranuDrum:
         :param binary_threshold: The threshold for making a binary version of greyscale image.
         :param rotation: The angle to rotate the images in degrees.
         :param canny_bool: If True, the canny edge detection algorithm is used to extract the interface. If False, the find first edge detection algorithm is used.
+        :param contour_bool: If True, the contour algorithm is used to extract the interface. If False, the find first edge detection algorithm is used.
         :return: Stack of x,y coordinates for all images imported.
         """
         # Get image list.
@@ -452,6 +474,31 @@ class AnalyseGranuDrum:
                 edge_image = canny_edge_detection(binary_image, canny_threshold=edge_detection_threshold)  # Run Canny algorithm to extract interface.
                 cropped_image2 = crop_image(edge_image, percentage=self.crop_percentage)  # Crop image to get interface
                 free_surface_points = get_edge_coordinates(cropped_image2)  # Extract x,y coordinates of interface.
+            elif contour_bool is True:
+                contour_free_surface_points = extract_free_surface_contour(binary_image)
+                free_surface_points_all = crop_points(contour_free_surface_points, image_resolution=self.processing_diameter, crop_percentage=self.crop_percentage)
+
+                # Initialize an array to hold the averaged contour
+                averaged_contour = []
+
+                # Loop through each x in the range of processing_diameter
+                for x in range(self.processing_diameter):
+                    # Find the indices of points where x coordinate matches the current x
+                    matching_indices = np.where(free_surface_points_all[:, 0] == x)[0]
+
+                    if len(matching_indices) > 0:  # Check if there are y values for this x
+                        # Extract the corresponding y values
+                        y_values = free_surface_points_all[matching_indices, 1]
+                        # Calculate the average y value
+                        y_avg = np.nanmean(y_values)
+                        # Append the x and averaged y to the result list
+                        averaged_contour.append([x, y_avg])
+                    else:
+                        averaged_contour.append([x, np.nan])
+
+                # Convert the averaged contour to a NumPy array
+                free_surface_points = np.array(averaged_contour)
+                free_surface_points[:, 1] = np.subtract(400, free_surface_points[:, 1])
             else:
                 pre_cropped_image = crop_image(binary_image, percentage=1)  # Crop image to get interface
                 find_first_interface = extract_free_surface_ff(pre_cropped_image)
