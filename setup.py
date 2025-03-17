@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="granudrum_analysis",
-    version="1.0.0",
+    version="1.0.1",
     author="Ben Jenkins",
     author_email="bdj746@student.bham.ac.uk",
     description="Python package for analysing data from the GranuDrum simulation.",
