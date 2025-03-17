@@ -730,6 +730,8 @@ class AnalyseGranuDrum:
                       )
         if save_html:
             fig.write_html("GD-Interface.html")
+        elif save_path is not None:
+            fig.write_image(save_path)
         else:
             fig.show()
 
