@@ -371,6 +371,29 @@ def avg_diff(numbers):
     return sum(diffs)/len(diffs) # calculate the average
 
 
+def slice_and_center_interface(interface_array, percentage):
+    """
+    Slices an interface array, calculates the centroid of the slice,
+    and returns both the original and centered (normalized) coordinates.
+    """
+    if not isinstance(interface_array, np.ndarray) or interface_array.ndim != 2:
+        return None, None, None
+
+    num_points = len(interface_array)
+    if num_points == 0:
+        return None, None, None
+
+    slice_count = int(num_points * (percentage / 100.0))
+    if slice_count < 4:
+        return None, None, None
+
+    original_slice = interface_array[-slice_count:]
+    centroid = np.mean(original_slice, axis=0)
+    centered_slice = original_slice - centroid
+
+    return original_slice, centered_slice, centroid
+
+
 class AnalyseGranuDrum:
 
     def __init__(self, crop_percentage, common_filename, images_path, number_of_images, processing_diameter=400, use_3_shear_rotation=False, percentage_of_images=1, add_randomness=True):
@@ -387,6 +410,7 @@ class AnalyseGranuDrum:
         self.use_3_shear_rotation = use_3_shear_rotation
         self.percentage_of_images = percentage_of_images
         self.add_randomness = add_randomness
+        self._crop_radius = (self.processing_diameter / 2) * (1 - self.crop_percentage / 100)
 
     def import_images(self):
         """
@@ -478,22 +502,22 @@ class AnalyseGranuDrum:
                 contour_free_surface_points = extract_free_surface_contour(binary_image)
                 free_surface_points_all = crop_points(contour_free_surface_points, image_resolution=self.processing_diameter, crop_percentage=self.crop_percentage)
 
-                # Initialize an array to hold the averaged contour
-                averaged_contour = []
-
                 # Loop through each x in the range of processing_diameter
-                for x in range(self.processing_diameter):
-                    # Find the indices of points where x coordinate matches the current x
-                    matching_indices = np.where(free_surface_points_all[:, 0] == x)[0]
+                x_to_y_map = defaultdict(list)
+                for x_val, y_val in free_surface_points_all:
+                    # Only add valid numbers to the list, skipping NaNs from the start
+                    if not np.isnan(y_val):
+                        x_to_y_map[int(x_val)].append(y_val)
 
-                    if len(matching_indices) > 0:  # Check if there are y values for this x
-                        # Extract the corresponding y values
-                        y_values = free_surface_points_all[matching_indices, 1]
-                        # Calculate the average y value
-                        y_avg = np.nanmean(y_values)
-                        # Append the x and averaged y to the result list
+                averaged_contour = []
+                for x in range(self.processing_diameter):
+                    y_values = x_to_y_map.get(x)  # Use .get() to handle x with no points
+
+                    if y_values:  # Check if the list is not None and not empty
+                        y_avg = np.mean(y_values)  # Use np.mean, it's faster as we pre-filtered NaNs
                         averaged_contour.append([x, y_avg])
                     else:
+                        # This case now correctly handles both 'no points for x' and 'only NaN points for x'
                         averaged_contour.append([x, np.nan])
 
                 # Convert the averaged contour to a NumPy array
@@ -528,6 +552,9 @@ class AnalyseGranuDrum:
         # Find the angle to rotate the images by using best fit line.
         all_angles = []
         for i, data in enumerate(interface_data):
+            if data.shape[0] < data.shape[1]:
+                data = data.T
+
             data_no_nans = data[~np.isnan(data).any(axis=1)]
             best_fit_line = np.poly1d(np.polyfit(data_no_nans[:, 0], data_no_nans[:, 1], 1))
             x0, x1 = 0, 10
@@ -590,41 +617,104 @@ class AnalyseGranuDrum:
             interface_data
         )
 
-    def cohesive_index(self, average_interface, interface_data):
+    def cohesive_index(self, interfaces: np.ndarray) -> float:
         """
-        Calculates the cohesive index from the average interface and a set of interface x,y positions.
-        :param average_interface: An array of x,y interface data from the GranuDrum digital twin.
-        :param interface_data: An array of x,y interface data from the GranuDrum digital twin.
-        :return: cohesive index
+        Calculates the cohesive index, defined as the average standard deviation
+        of the interface fluctuations.
+
+        Args:
+            interfaces: A 3D array of interface data.
+
+        Returns:
+            The calculated cohesive index.
         """
-        # Find the standard deviation of all the interfaces at each x coordinate
-        all_y_std = np.zeros(len(average_interface[:, 0]))
-        all_y_data = []
-        all_avg_minus_all_squared = []
-        for x, value in enumerate(average_interface):
-            all_y_data.append(interface_data[:, x, 1])
-            number_y_points = np.sum(np.isfinite(interface_data[:, x, 1]))
-            y_avg_minus_y = np.subtract(value[1], interface_data[:, x, 1])
-            avg_minus_all_squared = np.power(y_avg_minus_y, 2)
-            all_avg_minus_all_squared.append(avg_minus_all_squared)
-            y_sum = np.nansum(avg_minus_all_squared)
-            y_sum_divided_by_number_y_points = np.divide(y_sum, number_y_points)
-            y_std = np.sqrt(y_sum_divided_by_number_y_points)
-            all_y_std[x] = y_std
+        # Calculate standard deviation across all interfaces for each x-coordinate
+        y_values = interfaces[:, :, 1]
+        with warnings.catch_warnings():  # Keep warning suppression here as some NaNs are expected
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            std_devs = np.nanstd(y_values, axis=0)
 
-        all_y_std_vstack = np.vstack(np.array(all_y_std))
+        # Sum the standard deviations and normalize by the effective diameter
+        # <<< Use calculated crop radius for accuracy
+        effective_diameter = self._crop_radius * 2
+        sum_std_devs = np.nansum(std_devs)
 
-        # df1 = pd.DataFrame(all_avg_minus_all_squared)
-        # df1.to_csv('all_avg_minus_all_squared.csv')
-        # df = pd.DataFrame(all_y_data)
-        # df.to_csv('y_data.csv')
+        if effective_diameter == 0:
+            return 0.0
 
-        # Sum standard deviations and divide by the crop diameter
-        y_std_sum = np.nansum(all_y_std)
-        cohesive_index = y_std_sum / (self.processing_diameter-(self.processing_diameter*(self.crop_percentage/100)))
-        cohesive_index = cohesive_index * (800 / self.processing_diameter)  # Correction factor
+        # Correction factor to match original implementation's scaling
+        correction_factor = 800 / self.processing_diameter
 
-        return cohesive_index
+        return (sum_std_devs / effective_diameter) * correction_factor
+
+    def calculate_wall_angle(self, interface_array, drum_diameter=None, drum_center=None, slice_percentage=15.0) -> float:
+        """
+        Calculates the angle between the tangent to the end of the free surface
+        and the tangent to the circular drum wall at their intersection point.
+
+        Args:
+            interface_array (np.ndarray): The (x, y) coordinates of the averaged, rotated interface.
+            drum_diameter (float): The diameter of the drum in pixels.
+            drum_center (tuple): The (h, k) coordinates of the drum's center.
+            slice_percentage (float): The percentage of points from the end of the interface to use for the fit.
+
+        Returns:
+            float: The calculated angle in degrees. Returns np.nan if calculation fails.
+        """
+        if drum_diameter is None:
+            drum_diameter = self.processing_diameter
+
+        if drum_center is None:
+            drum_center = (self.processing_diameter / 2, self.processing_diameter / 2)
+
+        if interface_array is None or interface_array.size == 0:
+            return np.nan
+
+        radius = drum_diameter / 2.0
+        h, k = drum_center
+
+        interface_array = interface_array[~np.isnan(interface_array).any(axis=1)]
+
+        num_points_for_slice = int(len(interface_array) * (slice_percentage / 100.0))
+        if num_points_for_slice < 2:
+            return np.nan
+
+        surface_slice = interface_array[-num_points_for_slice:]
+        x_slice, y_slice = surface_slice[:, 0], surface_slice[:, 1]
+
+        m, c = np.polyfit(x_slice, y_slice, 1)
+
+        a_quad = 1 + m ** 2
+        b_quad = 2 * (m * (c - k) - h)
+        c_quad = h ** 2 + (c - k) ** 2 - radius ** 2
+
+        discriminant = b_quad ** 2 - 4 * a_quad * c_quad
+
+        if discriminant < 0:
+            return np.nan
+
+        x_int_1 = (-b_quad + np.sqrt(discriminant)) / (2 * a_quad)
+        x_int_2 = (-b_quad - np.sqrt(discriminant)) / (2 * a_quad)
+
+        x_avg_slice = np.mean(x_slice)
+        x_int = x_int_1 if np.abs(x_int_1 - x_avg_slice) < np.abs(x_int_2 - x_avg_slice) else x_int_2
+        y_int = m * x_int + c
+
+        # Slope of radius from (h, k) to (x_int, y_int)
+        if (y_int - k) == 0:
+            return 0.0
+        m_wall_tangent = -(x_int - h) / (y_int - k)
+
+        angle_surface_rad = np.arctan(m)
+        angle_wall_rad = np.arctan(m_wall_tangent)
+
+        angle_rad = np.abs(angle_surface_rad - angle_wall_rad)
+        angle_deg = np.degrees(angle_rad)
+
+        if angle_deg > 90:
+            angle_deg = 180 - angle_deg
+
+        return angle_deg
 
     def plot_interface(self, interface_data, average_interface=None, dynamic_angle_points=None, polynomial=None, save_html=False, save_path=None, use_image=True, use_binary_background=False):
         """
