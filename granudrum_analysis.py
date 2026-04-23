@@ -456,7 +456,7 @@ class AnalyseGranuDrum:
 
         return self.new_image_list
 
-    def extract_interface(self, rotation=0, binary_threshold=10, edge_detection_threshold=10, canny_bool=False, contour_bool=False):
+    def extract_interface(self, rotation=0, binary_threshold=10, edge_detection_threshold=10, canny_bool=False, contour_bool=False, skip_images = 0,):
         """
         Takes a set of images from the GranuDrum digital twin and extracts x,y points of the free surface/air-powder interface.
 
@@ -469,6 +469,9 @@ class AnalyseGranuDrum:
         """
         # Get image list.
         image_list = self.import_images()
+        # Skip the first n images
+        image_list = image_list[skip_images:]
+
         self.plotting_image = image_list[0]
 
         # Get images size
