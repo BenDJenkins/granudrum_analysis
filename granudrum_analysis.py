@@ -101,20 +101,13 @@ def extract_free_surface_ff(binary_image):
 
 def extract_free_surface_contour(binary_image):
     # Find contours
-    # Find contours
     contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
     # Find the contour with the largest area
     largest_contour = max(contours, key=cv2.contourArea)
 
     # Extract x, y coordinates from the largest contour and convert to a NumPy array
-    contour_coordinates = np.asfarray([point[0] for point in largest_contour])
-
-    # contour_image = cv2.cvtColor(binary_image, cv2.COLOR_GRAY2BGR)
-    # cv2.drawContours(contour_image, largest_contour          , -1, (0, 255, 0), 1)
-    # cv2.imshow('Contours', contour_image)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    contour_coordinates = np.asarray([point[0] for point in largest_contour])
 
     return contour_coordinates
 
@@ -144,6 +137,9 @@ def crop_image(image, percentage=0):
 
 def crop_points(points, image_resolution, crop_percentage):
     """Returns a set of points that are within a percentage circle of the centre of the original image"""
+    # Convert points to float so it can accept np.nan assignments
+    points = points.astype(float)
+    
     # Find threshold radius to crop out points outside of
     threshold_radius = (image_resolution / 2) * ((100 - crop_percentage) / 100)
 
@@ -245,22 +241,30 @@ def rotate_and_integerise(origin, points, angle, processing_diameter):
 
     interpolate_output_y = []
     for i in range(processing_diameter - 1):
-        if i < min_x:
+        if i < min_x or i > max_x:
             interpolate_output_y.append(np.nan)
-        elif i > max_x:
-            interpolate_output_y.append(np.nan)
-        elif math.isfinite(output_y[i]) is False:
-            before_values = interpolate_output_y[i-1]
-            after_values_fintite = False
-            j = 1
-            while after_values_fintite is False:
-                after_values = output_y[i+j]
-                after_values_fintite = math.isfinite(after_values)
-                j += 1
+            
+        elif not math.isfinite(output_y[i]):
+            if len(interpolate_output_y) == 0 or not math.isfinite(interpolate_output_y[-1]):
+                interpolate_output_y.append(np.nan)
+            else:
+                before_values = interpolate_output_y[-1]
+                after_values_finite = False
+                j = 1
+                after_values = np.nan
+                
+                while not after_values_finite and (i + j) < len(output_y):
+                    after_values = output_y[i + j]
+                    after_values_finite = math.isfinite(after_values)
+                    j += 1
 
-            interpolated_value = (before_values + after_values) / 2
-            interpolate_output_y.append(interpolated_value)
-        elif math.isfinite(output_y[i]) is True:
+                if after_values_finite:
+                    interpolated_value = (before_values + after_values) / 2
+                    interpolate_output_y.append(interpolated_value)
+                else:
+                    interpolate_output_y.append(np.nan)
+                    
+        elif math.isfinite(output_y[i]):
             interpolate_output_y.append(output_y[i])
 
     final_rotated_points = np.hstack((np.array([output_x]).T, np.array([interpolate_output_y]).T))
@@ -833,15 +837,21 @@ class AnalyseGranuDrum:
         :return: Returns dynamic_angle_degrees: dynamic angle of repose and
         points: top and bottom points used to calculate the dynamic angle of repose
         """
+        valid_interface = average_interface[~np.isnan(average_interface).any(axis=1)]
+        
+        if len(valid_interface) < 2:
+            dynamic_angle = namedtuple("dynamic_angle", ["dynamic_angle_degrees", "points"])
+            return dynamic_angle(np.nan, np.array([[0,0], [0,0]]))
+
         d_5 = self.processing_diameter / 5
 
-        # Find central point to calculate dynamic angle of repose at
-        centre_index = int(self.processing_diameter / 2)
-        centre = average_interface[centre_index]
+        # Find central point to calculate dynamic angle of repose at using the valid interface
+        centre_index = len(valid_interface) // 2
+        centre = valid_interface[centre_index]
 
         # Find the points to use for dynamic angle of repose calculation
-        ordinates_left = average_interface[0:centre_index]
-        ordinates_right = average_interface[centre_index:len(average_interface)]
+        ordinates_left = valid_interface[0:centre_index]
+        ordinates_right = valid_interface[centre_index:len(valid_interface)]
 
         distance_left = centre[0] - ordinates_left[:, 0]
         distance_right = ordinates_right[:, 0] - centre[0]

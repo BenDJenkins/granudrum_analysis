@@ -19,12 +19,10 @@ interfaces, horizontal_shift = analysis.extract_interface(binary_threshold=1)  #
 
 data = analysis.average_interface(interfaces)
 
-cohesive_index = analysis.cohesive_index(data.derotated_averaged_interface, data.interfaces)
-
+cohesive_index = analysis.cohesive_index(data.interfaces)
 angle_data = analysis.dynamic_angle_of_repose(data.derotated_averaged_interface)
-
 poly_3 = analysis.polynomial_fit(data.derotated_averaged_interface, 3)
 
-cohesiveindex_array.append(cohesive_index)
-dynamicangle_array.append(angle_data.dynamic_angle_degrees)
+print(f"Dynamic Angle of Repose: {angle_data.dynamic_angle_degrees}, Cohesive Index: {cohesive_index}, Polynomial Fit Values: {poly_3}")
+
 ```
